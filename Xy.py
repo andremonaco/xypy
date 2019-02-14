@@ -6,18 +6,19 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+from statsmodels import robust
 from copy import copy
 from functools import reduce
 from types import FunctionType
 from scipy.linalg import block_diag
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder, scale
 
 
 # Class definition -------------------------------------------------------------
 class Xy:
     """ Artificial supervised learning class """
 
-    # Check input types --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  -- 
+    # Check input types --------------------------------------------------------
     def checktypes(function):
         def _f(*arguments, **kwargs):
             for index, argument in enumerate(inspect.getfullargspec(function)[0]):
@@ -37,31 +38,32 @@ class Xy:
         _f.__doc__ = function.__doc__
         return _f
 
-    # Simulation --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  --  -- -
+    # Simulation ---------------------------------------------------------------
     @checktypes
-    def __init__(self: '__main__.__init__', 
-                 n: int = 1000, 
-                 numvars: list = [2, 2], 
-                 catvars: list = [1, 2], 
-                 noisevars: int = 5,                  
-                 nlfun: FunctionType = lambda x: x**2, 
-                 type: str = 'reg', 
-                 link: FunctionType = lambda x: x, 
-                 cutoff: float = 0.5, 
-                 interactions: int = 1, 
-                 sig: list = [1, 1], 
-                 cor: list = [0, 0.1], 
-                 weights: list = [-5, 5], 
+    def __init__(self: '__main__.__init__',
+                 n: int = 1000,
+                 numvars: list = [2, 2],
+                 catvars: list = [1, 2],
+                 noisevars: int = 5,
+                 nlfun: FunctionType = lambda x: x**2,
+                 type: str = 'reg',
+                 link: FunctionType = lambda x: x,
+                 cutoff: float = 0.5,
+                 interactions: int = 1,
+                 sig: list = [1, 1],
+                 cor: list = [-.5, .5],
+                 weights: list = [-5, 5],
                  sigma: np.ndarray = np.array(0),
-                 stn: int = 4, 
-                 noise_coll: bool = False, 
-                 intercept: bool = True
-    ):
+                 stn: float = 4,
+                 seed: int = 1337,
+                 noise_coll: bool = False,
+                 intercept: bool = True):
+            
         """  A function which simulates linear and nonlinear X and a corresponding
              target. The composition of the target is highly customizable.
              Furthermore, the polynomial degree as well as the functional shape of
              nonlinearity can be specified by the user. Additionally coviarance structure
-             of the X can either be sampled by the function or specifically 
+             of the X can either be sampled by the function or specifically
              determined by the user.
 
             :param n: an integer specifying the number of observations.
@@ -72,7 +74,7 @@ class Xy:
                             With this vector you can choose how many categorical predictors should
                             enter the equation and secondly the respective amount of categories.
                             For instance, catvars = [2, 5] would correspond to creating
-                            two categorical variables with five categories. 
+                            two categorical variables with five categories.
             :param noisevars: an integer determining the number of noise variables.
             :param nlfun: a lambda function transforming nonlinear variables.
             :param type: a character specifying the supervised learning task either 'reg' or 'class'.
@@ -90,15 +92,19 @@ class Xy:
                           will be sampled from argument 'cor'.
             :param stn: an integer value determining the signal to noise ratio.
                         Higher values lead to more signal and less noise.
+            :param seed: an integer specifying the random number generator seed.
             :param noise_coll: a boolean determining noise collinearity with X
             :param intercept: a boolean indicating whether an intercept should enter the model
-        """    
+        """
         # save input
         self.input = locals()
 
+        # set seed
+        random.seed(seed)
+
         # Functions ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         def collapse(x, char=''):
-            """ Collapse a list of strings by a character  """ 
+            """ Collapse a list of strings by a character  """
             return reduce(lambda x, y: str(x) + char + str(y), x)
 
         # Input handling +++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -148,14 +154,17 @@ class Xy:
 
         # covariance handling ++++++++++++++++++++++++++++++++++++++++++++++++++
         if len(sigma.shape) is 0:
-            sigma = np.random.uniform(low = min(cor), high = max(cor), 
-                                      size = (vars-sub_noise, vars-sub_noise))
-            np.fill_diagonal(sigma, 1)
-
-            # force symmetric (necessary?)
-            # sigma = np.maximum( sigma, sigma.transpose() )
-            chol = np.linalg.cholesky(sigma)
-            np.fill_diagonal(chol, 1)
+            for i in range(0, 20):
+                try:
+                    sigma = np.random.uniform(low = min(cor), high = max(cor), 
+                                            size = (vars-sub_noise, vars-sub_noise))
+                    np.fill_diagonal(sigma, 1)
+            
+                    chol = np.linalg.cholesky(sigma)
+                    np.fill_diagonal(chol, 1)
+                    break
+                except np.linalg.linalg.LinAlgError:
+                    continue
         else: 
             # handle false misspecified sigma matrix
             if sigma.shape[0] is not vars:
@@ -199,10 +208,10 @@ class Xy:
 
         # rotate X
         X = X @ chol
-
-        # normalize X
-        #X = (X - X.min(0)) / X.ptp(0)
         
+        # center X
+        X = scale(X, with_std=True)
+
         # split noise and  X
         X, E = np.hsplit(X, [vars-noisevars])
 
@@ -263,9 +272,15 @@ class Xy:
         
         target = np.concatenate([X_TRANS, X_DUM], axis=1) @ INT @ np.array([1]*INT.shape[1])
 
-        # handle intercept +++++++++++++++++++++++++++++++++++++++++++++++++++++
+        # handle noise +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        noise = np.random.normal(0, np.var(target)/stn, size=n)
+        #noise = noise_n * np.sqrt(np.var(target)/(stn*np.var(noise_n)))
+        target = target + noise
+        noise_paste = 'e ~ N(0, ' + str(np.round(np.std(noise), 2)) + ')'
+        
+                # handle intercept +++++++++++++++++++++++++++++++++++++++++++++++++++++
         if intercept: 
-            i_cept = abs(max(target)-min(target))*0.3
+            i_cept = np.mean(noise) + np.random.normal(size=1)
             i_cept_paste = 'y = ' + str(np.round(i_cept, 2))
             I = np.ones((n,1))
             target = target + i_cept
@@ -273,12 +288,6 @@ class Xy:
             i_cept_paste = 'y = '
             I = np.zeros((n,0))
 
-        # handle noise +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-        noise_n = np.random.normal(size=n)
-        noise = noise_n * np.sqrt(np.var(target)/(stn*np.var(noise_n)))
-        target = target + noise
-        noise_paste = 'e ~ N(0, ' + str(np.round(np.std(noise), 2)) + ')'
-        
         # handle link/cutoff +++++++++++++++++++++++++++++++++++++++++++++++++++
         # TODO: redundant? because tested above?
         if 5 is link(5) and type is 'class':
@@ -414,7 +423,7 @@ class Xy:
             X_NLIN = X.loc[:,nlins]
             nlfun = self.input['nlfun']
             X.loc[:, nlins] =  np.array([nlfun(X_NLIN.iloc[:, i]) for i in range(0, sum(nlins))]).transpose()
-        TRANS = np.concatenate([X, self.y]) @ self.psi
+        TRANS = pd.concat([X, self.y], axis=1) @ self.psi
         return TRANS
 
     # Extract true weights method ----------------------------------------------
@@ -436,10 +445,48 @@ class Xy:
         df = df.iloc[:, [bool(re.search('LIN|y', str(i))) for i in df.columns]]
         df_melt = pd.melt(df, id_vars='y', var_name = 'feature', value_name = 'size')
         g = sns.FacetGrid(df_melt, col='feature')
-        g.map(plt.scatter, 'size', 'y', color = "#13235B", s=50, alpha=.7, 
-              linewidth=.5, edgecolor="white")
+        g.map(plt.scatter, 'size', 'y', color='#13235B', s=50, alpha=.7, linewidth=.5, edgecolor='white')
+        g.map(sns.regplot, 'size', 'y', color='#00A378', lowess=True, scatter = False)
+        plt.show()
         return None
 
     # Variable importance method -----------------------------------------------
-    def varimp(self):
-        return None
+    def varimp(self, plot=True):
+        """ Plot feature importance """ 
+        # transform X back
+        X = copy(self.X)
+        nlins = [bool(re.search('NLIN', str(i))) for i in self.X.columns]
+        if sum(nlins) > 0:
+            X_NLIN = X.loc[:,nlins]
+            nlfun = self.input['nlfun']
+            X.loc[:, nlins] =  np.array([nlfun(X_NLIN.iloc[:, i]) for i in range(0, sum(nlins))]).transpose()
+        names = X.columns
+        X = pd.DataFrame(X @ self.psi)
+        X.columns = names
+        X = X.iloc[:, [not bool(re.search('NOISE|y', str(i))) for i in X.columns]]
+        feature_sum = pd.DataFrame(X.sum(axis= 1))
+        E = self.y.subtract(np.array(feature_sum))
+        E.columns = ['NOISE']
+        df_plot = pd.concat([X, E], axis=1)
+        imp_raw = df_plot.apply(lambda x, df_plot: np.abs(x) / df_plot.abs().sum(axis=1), 
+                                df_plot=df_plot, axis = 0)
+        out = imp_raw.aggregate([np.mean, np.median, np.std, robust.mad], axis=0).transpose()
+        out = out.sort_values('median', ascending=False)
+
+        if plot:
+            imp_melt = pd.melt(imp_raw, var_name = 'feature', value_name = 'size')
+            op = dict(markerfacecolor='#C62F4B',linestyle='none', marker = 'o',
+                      markersize=5, alpha = .7, markeredgecolor='white')
+            bp =   dict(linestyle='-', facecolor='white',
+                        edgecolor='#13235B')
+            mp = dict(linestyle='-', linewidth=1.5, color='#C62F4B')
+            wp = dict(color = '#13235B')
+            imp_plot = sns.boxplot(y='feature', x='size', 
+                                   data=imp_melt, order=out.index.tolist(),
+                                   flierprops=op, boxprops=bp, 
+                                   medianprops=mp, whiskerprops=wp)
+            imp_plot.set_title('Feature Importance')
+            imp_plot.set(xlabel='importance', ylabel='')
+            plt.show()
+
+        return out
