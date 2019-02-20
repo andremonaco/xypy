@@ -159,7 +159,7 @@ class Xy:
                     sigma = np.random.uniform(low = min(cor), high = max(cor), 
                                             size = (vars-sub_noise, vars-sub_noise))
                     np.fill_diagonal(sigma, 1)
-            
+                    sigma = np.tril( sigma )
                     chol = np.linalg.cholesky(sigma)
                     np.fill_diagonal(chol, 1)
                     break
