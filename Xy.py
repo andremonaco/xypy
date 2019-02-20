@@ -159,6 +159,7 @@ class Xy:
                     sigma = np.random.uniform(low = min(cor), high = max(cor), 
                                             size = (vars-sub_noise, vars-sub_noise))
                     np.fill_diagonal(sigma, 1)
+
                     sigma = np.tril( sigma )
                     chol = np.linalg.cholesky(sigma)
                     np.fill_diagonal(chol, 1)
@@ -235,20 +236,21 @@ class Xy:
         colnames = feature_names(['LIN', 'NLIN', 'DUMMY', 'NOISE'], all, 2, catvars)
         
         # transform nonlinear variables
+        X_TRANS = copy(X)
         if numvars[1] > 0:
            nlin_ind = range(numvars[0], sum(numvars))
-           X_TRANS = copy(X)
            X_TRANS[:, nlin_ind] = np.array([nlfun(X[:, i]) for i in nlin_ind]).transpose()
         
         # handle categorical features
-        X_DUM = [sample_feature(n, sig, cat = True, catvars = catvars) for i in range(0, catvars[0])]
-        X_DUM = np.array(X_DUM).transpose()
+        X_DUM = [sample_feature(n, sig, cat = True, catvars = catvars) for i in range(0, catvars[0])] 
+        X_DUM = np.array(X_DUM).transpose() 
         enc = OneHotEncoder(handle_unknown='error')
         if X_DUM.shape[0] > 0:
             enc.fit(X_DUM)
             X_DUM = enc.transform(X_DUM).toarray()
             X_DUM = np.delete(X_DUM, np.arange(0, np.prod(catvars), catvars[1]), 1)
-        
+        else: 
+            X_DUM = [] # TODO: fix this right
         
         # handle interactions ++++++++++++++++++++++++++++++++++++++++++++++++++
 
@@ -270,8 +272,15 @@ class Xy:
         
         INT = sample_interactions(INT, weights, interactions)
         
-        target = np.concatenate([X_TRANS, X_DUM], axis=1) @ INT @ np.array([1]*INT.shape[1])
-
+        # TODO: too hacky | filter out irrelevant entries
+        X_COMBINE = [X_TRANS, X_DUM]
+        X_COMBINE = [e for e in X_COMBINE if len(e) > 0]
+        if len(X_COMBINE) > 2:
+            X_COMBINE = np.concatenate(X_COMBINE, axis=1)
+        else:
+            X_COMBINE = X_COMBINE[0]
+        target = X_COMBINE @ INT @ np.array([1]*INT.shape[1])
+        
         # handle noise +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         noise = np.random.normal(0, np.var(target)/stn, size=n)
         #noise = noise_n * np.sqrt(np.var(target)/(stn*np.var(noise_n)))
@@ -343,6 +352,7 @@ class Xy:
         # pandas frames ++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         def cbind(x):
             """ Column bind a list of matrices and remove Nones """
+            x = [e for e in x if len(e) > 0]
             sub = [x[i].shape[1] is not 0 for i in range(0, len(x))]
             out = np.concatenate([i for (i, v) in zip(x, sub) if v], axis = 1)
             return out

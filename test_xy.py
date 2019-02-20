@@ -1,6 +1,11 @@
 from Xy import Xy
 import seaborn as sns
 import matplotlib.pyplot as plt
+my_sim = Xy(numvars = [50, 0], catvars = [0, 0],
+           weights = [5,10], stn = 4.0,
+           cor = [0, 0.1], interactions = 2, noisevars = 5)
+
+
 my_sim = Xy(numvars = [50,50], catvars = [2,4],
             nlfun= lambda x: x**2,
             weights = [-10,10], stn=800.0,
