@@ -1,24 +1,31 @@
 from Xy import Xy
 import seaborn as sns
 import matplotlib.pyplot as plt
-my_sim = Xy(numvars = [50, 0], catvars = [0, 0],
-           weights = [5,10], stn = 4.0,
-           cor = [0, 0.1], interactions = 2, noisevars = 5)
+from sklearn.linear_model import LinearRegression
 
+# simulate data
+my_sim = Xy(n = 1000, # number of observations
+            numvars = [10,0],  # number of variables (10 linear 0 nonlinear)
+            catvars = [1, 2], # one categorical variable with two levels
+            stn = 100.0) # signal to noise ratio 10:1
 
-my_sim = Xy(numvars = [50,50], catvars = [2,4],
-            nlfun= lambda x: x**2,
-            weights = [-10,10], stn=800.0,
-            cor=[.1,.9], interactions = 1, noisevars = 5)
+# look at the true effects
+#my_sim.varimp()
 
+# extract the design matrix and 
 X, y = my_sim.data(add_noise = False)
-my_sim.weights()
-#my_sim.plot()
-varimp = my_sim.varimp()
 
+# build linear model
+linreg = LinearRegression(fit_intercept = False)
 
-import timeit
+# fit the model
+mod = linreg.fit(X=X,y=y)
 
-n_sim = 10
-out = timeit.timeit('Xy(n = '+ str(n_sim) +',  numvars = [50,0])',
-                    setup = 'from Xy import Xy', number = 10)
+# extract the linear regression weights
+mod.coef_
+
+# extract the true model weights
+my_sim.coef_
+
+# compare
+mod.coef_ - my_sim.coef_

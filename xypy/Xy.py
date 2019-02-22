@@ -13,7 +13,6 @@ from types import FunctionType
 from scipy.linalg import block_diag
 from sklearn.preprocessing import OneHotEncoder, scale
 
-
 # Class definition -------------------------------------------------------------
 class Xy:
     """ Artificial supervised learning class """
@@ -50,10 +49,10 @@ class Xy:
                  link: FunctionType = lambda x: x,
                  cutoff: float = 0.5,
                  interactions: int = 1,
-                 sig: list = [1, 1],
+                 sig: list = [1, 6],
                  cor: list = [-.5, .5],
                  weights: list = [-5, 5],
-                 sigma: np.ndarray = np.array(0),
+                 cormat: np.ndarray = np.array(0),
                  stn: float = 4,
                  seed: int = 1337,
                  noise_coll: bool = False,
@@ -87,7 +86,7 @@ class Xy:
             :param sig: a list [min, max] indicating the scale parameter to sample from.
             :param cor: a list [min, max] determining correlation to sample from.
             :param weights: a list [min, max] specifying the multiplication magnitude to sample from.
-            :param sigma: a covariance np.array for the linear and nonlinear simulation.
+            :param cormat: a covariance np.array for the linear and nonlinear simulation.
                           Defaults to None which means the structure
                           will be sampled from argument 'cor'.
             :param stn: an integer value determining the signal to noise ratio.
@@ -141,75 +140,54 @@ class Xy:
                    'LIN': numvars[0], 
                    'NOISE': noisevars}
 
-         # handle noise collinearity
-        if not noise_coll:
-            # handle wrong dimensionality due to noise variables
-            sub_noise = noisevars
-        else:
-            # handle wrong dimensionality due to noise variables
-            sub_noise = 0
-
         # total number of variables
         vars = sum(mapping.values())
+        
+        if vars+catvars[0] is 0:
+            raise ValueError('The total amount of variables you selected is 0')
+
+        if noise_coll:
+            sub_noise = 0
+            if len(cormat.shape) > 0 and not vars:
+               raise ValueError('You have specified collinearity between the\
+                                 the features and the noise. Your prespecified\
+                                 correlation matrix lacks' + vars-cormat.shape[0] +
+                                 ' columns/rows.')
+        else:
+            sub_noise = noisevars
 
         # covariance handling ++++++++++++++++++++++++++++++++++++++++++++++++++
-        if len(sigma.shape) is 0:
-            for i in range(0, 20):
-                try:
-                    sigma = np.random.uniform(low = min(cor), high = max(cor), 
-                                            size = (vars-sub_noise, vars-sub_noise))
-                    np.fill_diagonal(sigma, 1)
+        if len(cormat.shape) is 0:
+            cormat = np.random.uniform(low = min(cor), high = max(cor), 
+                                      size = (vars-sub_noise, vars-sub_noise))
+        
+        # force symmetric correlation matrix
+        CORR = cormat + cormat.T - np.diag(cormat.diagonal())
+        np.fill_diagonal(CORR, 1)
+        
+        # handle noise between X and E
+        if not noise_coll:
+            noisecor = np.random.uniform(low = min(cor), high = max(cor), 
+                                         size = (noisevars, noisevars))
+            
+            CORR = block_diag(CORR, noisecor)
+            np.fill_diagonal(noisecor, 1)
 
-                    sigma = np.tril( sigma )
-                    chol = np.linalg.cholesky(sigma)
-                    np.fill_diagonal(chol, 1)
-                    break
-                except np.linalg.linalg.LinAlgError:
-                    continue
-        else: 
-            # handle false misspecified sigma matrix
-            if sigma.shape[0] is not vars:
-                raise ValueError('your specified sigma matrix has not the expected'\
-                             ' dimension of ' + str(vars) + 'x' + str(vars) +
-                             '.')
-            try:
-                np.fill_diagonal(sigma, 1)
-                chol = np.linalg.cholesky(sigma)
-            except np.linalg.linalg.LinAlgError:
-                raise np.linalg.linalg.LinAlgError('could not cholesky '\
-                                                   'decompose your sigma matrix.')
-
+        # sample standard deviations
+        sds = np.random.uniform(low = min(sig), 
+                                high = max(sig), 
+                                size = vars)
+  
+        # create covariance matrix
+        SIGMA = np.diag(sds) @ CORR @ np.diag(sds)
+        
         # X sampling +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-        def sample_feature(n, sig, cat, catvars = [0,0]):
-            """
-            Sample from normal distribution with sampled scale parameter
-                :param n: the number of observations.
-                :param sig: the scale parameter interval e.g. [0, 0.1]
-            """
-            if not cat:    
-                x = np.random.normal(loc = 0, scale = float(np.random.uniform(low = min(sig), 
-                                                                    high = max(sig), 
-                                                                    size = 1)), 
-                            size = n)
-            else:
-                if catvars[1] is not 0:
-                    x = np.random.randint(catvars[1], size = n)
-                else:
-                    x = []
-            return x
+        # sample features (and noise)
+        X = np.random.multivariate_normal(mean = np.repeat(0, vars),
+                                          cov = SIGMA,
+                                          size = n)
 
-        # sample features
-        X = [sample_feature(n, sig, cat = False) for i in range(0, vars)]
-        X = np.array(X).transpose()
-        
-        # split noise from features if there is no correlation between E and X
-        if not noise_coll:
-            chol = block_diag(chol, np.identity(sub_noise))
-
-        # rotate X
-        X = X @ chol
-        
         # center X
         X = scale(X, with_std=True)
 
@@ -242,9 +220,9 @@ class Xy:
            X_TRANS[:, nlin_ind] = np.array([nlfun(X[:, i]) for i in nlin_ind]).transpose()
         
         # handle categorical features
-        X_DUM = [sample_feature(n, sig, cat = True, catvars = catvars) for i in range(0, catvars[0])] 
+        X_DUM = [np.random.randint(catvars[1], size = n) for i in range(0, catvars[0])]
         X_DUM = np.array(X_DUM).transpose() 
-        enc = OneHotEncoder(handle_unknown='error')
+        enc = OneHotEncoder(handle_unknown='error', categories='auto')
         if X_DUM.shape[0] > 0:
             enc.fit(X_DUM)
             X_DUM = enc.transform(X_DUM).toarray()
@@ -275,7 +253,7 @@ class Xy:
         # TODO: too hacky | filter out irrelevant entries
         X_COMBINE = [X_TRANS, X_DUM]
         X_COMBINE = [e for e in X_COMBINE if len(e) > 0]
-        if len(X_COMBINE) > 2:
+        if len(X_COMBINE) is 2:
             X_COMBINE = np.concatenate(X_COMBINE, axis=1)
         else:
             X_COMBINE = X_COMBINE[0]
@@ -283,7 +261,7 @@ class Xy:
         
         # handle noise +++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         noise = np.random.normal(0, np.var(target)/stn, size=n)
-        #noise = noise_n * np.sqrt(np.var(target)/(stn*np.var(noise_n)))
+
         target = target + noise
         noise_paste = 'e ~ N(0, ' + str(np.round(np.std(noise), 2)) + ')'
         
@@ -365,6 +343,15 @@ class Xy:
         self.X.columns = colnames
         self.names = effect_names
         self.y = pd.DataFrame({'y': target})
+        
+        # true weights ++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        weights = self.psi @ np.ones((self.psi.shape[1], 1))
+        psi = copy(self.psi)
+        psi[psi == 0] = 1
+        names = self.names
+        select = [not bool(re.search('DUMMY.*__.*1$', str(i))) for i in names]
+        weights = np.array([np.round(np.prod(psi[:, i]), 2) for i in np.where(select)[0].tolist()])
+        self.coef_ = pd.DataFrame(np.reshape(weights, (1,len(weights))), columns=np.array(names)[select])
 
         return None
     
@@ -435,18 +422,6 @@ class Xy:
             X.loc[:, nlins] =  np.array([nlfun(X_NLIN.iloc[:, i]) for i in range(0, sum(nlins))]).transpose()
         TRANS = pd.concat([X, self.y], axis=1) @ self.psi
         return TRANS
-
-    # Extract true weights method ----------------------------------------------
-    def weights(self):
-        """ Extract the true underlying model weights """
-        weights = self.psi @ np.ones((self.psi.shape[1], 1))
-        psi = copy(self.psi)
-        psi[psi == 0] = 1
-        names = self.names
-        select = [not bool(re.search('DUMMY.*__.*1$', str(i))) for i in names]
-        weights = np.array([np.round(np.prod(psi[:, i]), 2) for i in np.where(select)[0].tolist()])
-        out = pd.DataFrame(np.reshape(weights, (1,len(weights))), columns=np.array(names)[select])
-        return out
 
     # Plotting method ----------------------------------------------------------
     def plot(self):
