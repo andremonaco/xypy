@@ -1,11 +1,12 @@
-from Xy import Xy
+from xypy import Xy
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
 
 # simulate data
 my_sim = Xy(n = 1000, # number of observations
-            numvars = [10,0],  # number of variables (10 linear 0 nonlinear)
+            numvars = [2, 0],  # number of variables (10 linear 0 nonlinear)
+            noisevars = 2,
             catvars = [1, 2], # one categorical variable with two levels
             stn = 100.0) # signal to noise ratio 10:1
 
@@ -28,4 +29,4 @@ mod.coef_
 my_sim.coef_
 
 # compare
-mod.coef_ - my_sim.coef_
+print(mod.coef_ - my_sim.coef_)
