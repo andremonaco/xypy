@@ -13,9 +13,9 @@ I have adapted this package from my R version, which you can check out [here](ht
 You can can checkout details about the package on [testPYPI](https://test.pypi.org/project/xypy/) or on 
 [GitHub](https://www.github.com/andrebleier/xypy).
 
-You can convienently install the package via testPYPI with the following command.
+You can convienently install the package via PYPI with the following command.
 ```
-pip install -i https://test.pypi.org/simple/ xypy
+pip install xypy
 ```
 There is an example test script on my [GitHub](https://www.github.com/andrebleier/xypy), which will you get started
 with the simulation.

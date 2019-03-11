@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
       name='xypy',
-      version='0.0.6',
+      version='0.0.7',
       description='A simulation framework for supervised learning data. The functionalities are specifically\
                    designed to let the user a maximum degrees of freedom, to ultimately fulfill the research purpose.\
                    Furthermore, feature importances of the simulation can be created on a local and a global level. \
